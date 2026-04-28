@@ -1,0 +1,6 @@
+streamlit
+PyMuPDF
+python-dotenv
+llama-index
+llama-index-llms-groq
+llama-index-llms-gemini
