@@ -71,6 +71,13 @@ Gerenciado via `st.session_state` para evitar redundâncias e inconsistências.
 - Suporte a fontes customizadas
 - Pronto para envio
 
+### 6. Interface Inteligente (Streamlit)
+- UI adaptativa por contexto
+- Abas (tabs) para navegação das etapas:
+    - 🔑 Palavras-chave | 📊 Compatibilidade | 💡 Sugestões | 📄 Currículo otimizado | 🏆 Score ATS
+- Controle dinâmico de fluxo
+- Feedback visual (score, progresso)
+
 ---
 
 ## 🏗️ Arquitetura do sistema
@@ -162,7 +169,6 @@ ou use o sistema de **secrets do Streamlit Cloud**
 
 ## 💡 Melhorias futuras:
 * Implementar OCR para analise de imagem
-* Separar a resposta da otimização em abas para melhorar a visualização
 * Perguntas da vaga e respostas para aumentar a aderência do candidato
 * Simulação de entrevista para a vaga
 * Inserir mais modelos de LLM

@@ -235,7 +235,7 @@ Responda exatamente neste formato:
 2️⃣ Análise de compatibilidade
 3️⃣ Sugestões estratégicas de melhoria
 4️⃣ Versão otimizada completa do currículo
-5️⃣ Score estimado de otimização ATS (0–100)
+5️⃣ Score estimado de otimização ATS (0–100) com justificativa curta
 
 Seja técnico, estratégico e objetivo.
 Não inclua elogios genéricos.
@@ -357,6 +357,49 @@ Job Description:
     prompt = template.format(cv=cv_content, job=job_description)
     return llm_complete(llm, prompt)
 
+def exibir_output_ats_em_abas(output: str, pdf_bytes: bytes = None, pdf_name: str = None) -> None:
+    """Divide o output do CVStrategicOptimizer em abas por etapa."""
+    marcadores = {
+        "1️⃣": "🔑 Palavras-chave",
+        "2️⃣": "📊 Compatibilidade",
+        "3️⃣": "💡 Sugestões",
+        "4️⃣": "📄 CV Otimizado",
+        "5️⃣": "🏆 Score ATS",
+    }
+
+    # Extrai o conteúdo de cada seção via regex
+    secoes = {}
+    chaves = list(marcadores.keys())
+    for i, emoji in enumerate(chaves):
+        proximo = chaves[i + 1] if i + 1 < len(chaves) else None
+        padrao = (
+            rf'{re.escape(emoji)}[^\n]*\n(.*?)(?={re.escape(proximo)}|\Z)'
+            if proximo
+            else rf'{re.escape(emoji)}[^\n]*\n(.*)'
+        )
+        match = re.search(padrao, output, re.DOTALL)
+        secoes[emoji] = match.group(1).strip() if match else ""
+
+    abas = st.tabs(list(marcadores.values()))
+    for aba, emoji in zip(abas, chaves):
+        with aba:
+            conteudo = secoes.get(emoji, "")
+            if conteudo:
+                st.markdown(conteudo)
+            else:
+                st.info("Conteúdo não encontrado para esta etapa.")
+            # Botão de download apenas na aba "📄 CV Otimizado"
+            if emoji == "4️⃣" and pdf_bytes and pdf_name:
+                st.divider()
+                st.download_button(
+                    label="📥 Baixar currículo otimizado em PDF",
+                    data=pdf_bytes,
+                    file_name=pdf_name,
+                    mime="application/pdf",
+                    key="dl_ats_main",
+                )
+
+
 # ============================ UI Streamlit ============================ #
 
 st.set_page_config(page_title="Análise de Currículos", page_icon="📄", layout="wide")
@@ -436,8 +479,10 @@ if job_text.strip():
     last_job = st.session_state.get("last_job_text", "")
     if job_text.strip() != last_job:
         st.session_state["last_job_text"] = job_text.strip()
-        if "ats_output" in st.session_state:
-            del st.session_state["ats_output"]
+        for key in ["ats_output", "ats_pdf_bytes", "ats_pdf_name",
+                    "cargo_da_vaga", "english_output_optimized",
+                    "english_output_optimized_pdf", "english_output_optimized_pdf_name"]:
+            st.session_state.pop(key, None)
 
 st.divider()
 
@@ -472,55 +517,62 @@ if cv_file:
         with st.spinner("Gerando resposta..."):
             if mode == "Otimização estratégica para vaga específica":
                 output = CVStrategicOptimizer(llm, cv_content, job_text)
+                cargo = extrair_cargo_da_vaga(llm, job_text)
+                cv_para_pdf = extrair_cv_otimizado(output)
+                pdf_bytes = markdown_to_pdf_bytes(cv_para_pdf, f"Currículo para {cargo}")
+                st.session_state["ats_output"]   = output
+                st.session_state["cargo_da_vaga"] = cargo
+                st.session_state["ats_pdf_bytes"] = pdf_bytes
+                st.session_state["ats_pdf_name"]  = f"Currículo para {cargo}.pdf"
+
             elif mode == "Gerar versão do currículo em inglês":
                 output = CVEnglishVersionGenerator(llm, cv_content)
+                pdf_bytes = markdown_to_pdf_bytes(output, "Resume")
+                st.session_state["english_output"]     = output
+                st.session_state["english_pdf_bytes"]  = pdf_bytes
+                st.session_state["optimize_after_english"] = False
+
             else:
                 output = curriculum_analyser(llm, cv_content)
+                cv_corrigido = CVCorrigido(llm, cv_content, output)
+                pdf_bytes = markdown_to_pdf_bytes(cv_corrigido, "Currículo Corrigido")
+                st.session_state["grammar_output"]    = output
+                st.session_state["grammar_pdf_bytes"] = pdf_bytes
 
+    # ───────────────────── Renderização fora do botão (persiste após download) ───────────────────── #
+    if mode == "Otimização estratégica para vaga específica" and "ats_output" in st.session_state:
         st.success("Concluído ✅")
-        st.markdown(output)
+        exibir_output_ats_em_abas(
+            st.session_state["ats_output"],
+            pdf_bytes=st.session_state.get("ats_pdf_bytes"),
+            pdf_name=st.session_state.get("ats_pdf_name"),
+        )
 
-        # ───────────── Exportar PDF ───────────── #
-        if mode == "Otimização estratégica para vaga específica":
-            cargo = extrair_cargo_da_vaga(llm, job_text)
-            cv_para_pdf = extrair_cv_otimizado(output)
-            pdf_bytes = markdown_to_pdf_bytes(cv_para_pdf, f"Currículo para {cargo}")
-            st.download_button(
-                label="📥 Baixar currículo otimizado em PDF",
-                data=pdf_bytes,
-                file_name=f"Currículo para {cargo}.pdf",
-                mime="application/pdf",
-                key="dl_ats_main",
-            )
-            st.session_state["ats_output"] = output
-            st.session_state["cargo_da_vaga"] = cargo
-
-        elif mode == "Gerar versão do currículo em inglês":
-            pdf_bytes = markdown_to_pdf_bytes(output, "Resume")
+    elif mode == "Gerar versão do currículo em inglês" and "english_output" in st.session_state:
+        st.success("Concluído ✅")
+        st.markdown(st.session_state["english_output"])
+        if "english_pdf_bytes" in st.session_state:
             st.download_button(
                 label="📥 Baixar currículo em inglês em PDF",
-                data=pdf_bytes,
+                data=st.session_state["english_pdf_bytes"],
                 file_name="Resume.pdf",
                 mime="application/pdf",
                 key="dl_english_main",
             )
-            st.session_state["english_output"] = output
-            st.session_state["optimize_after_english"] = False
 
-        else:
-            # Análise gramatical: gera o currículo corrigido para exportar
-            with st.spinner("Gerando currículo corrigido para exportação..."):
-                cv_corrigido = CVCorrigido(llm, cv_content, output)
-            pdf_bytes = markdown_to_pdf_bytes(cv_corrigido, "Currículo Corrigido")
+    elif mode == "Análise gramatical e de clareza" and "grammar_output" in st.session_state:
+        st.success("Concluído ✅")
+        st.markdown(st.session_state["grammar_output"])
+        if "grammar_pdf_bytes" in st.session_state:
             st.download_button(
                 label="📥 Baixar currículo corrigido em PDF",
-                data=pdf_bytes,
+                data=st.session_state["grammar_pdf_bytes"],
                 file_name="Currículo Corrigido.pdf",
                 mime="application/pdf",
                 key="dl_grammar_main",
             )
 
-    # ───────────── Pós ATS: oferecer versão em inglês ───────────── #
+    # ───────────────────── Pós ATS: oferecer versão em inglês ───────────────────── #
     if mode == "Otimização estratégica para vaga específica" and "ats_output" in st.session_state:
         st.divider()
         st.subheader("🌐 Próximo passo")
@@ -528,21 +580,25 @@ if cv_file:
 
         if st.button("Gerar versão em inglês do currículo otimizado", type="secondary"):
             with st.spinner("Traduzindo e adaptando para o inglês..."):
-                english_output_optimized = CVEnglishVersionGenerator(llm, st.session_state["ats_output"])
-            st.session_state["english_output_optimized"] = english_output_optimized
-            st.success("Versão em inglês gerada ✅")
-            st.markdown(english_output_optimized)
+                eng_opt = CVEnglishVersionGenerator(llm, st.session_state["ats_output"])
             cargo = st.session_state.get("cargo_da_vaga", "Vaga")
-            pdf_bytes = markdown_to_pdf_bytes(english_output_optimized, f"Resume for {cargo}")
+            pdf_bytes = markdown_to_pdf_bytes(eng_opt, f"Resume for {cargo}")
+            st.session_state["english_output_optimized"]          = eng_opt
+            st.session_state["english_output_optimized_pdf"]      = pdf_bytes
+            st.session_state["english_output_optimized_pdf_name"] = f"Resume for {cargo}.pdf"
+
+        if "english_output_optimized" in st.session_state:
+            st.success("Versão em inglês gerada ✅")
+            st.markdown(st.session_state["english_output_optimized"])
             st.download_button(
                 label="📥 Baixar versão em inglês em PDF",
-                data=pdf_bytes,
-                file_name=f"Resume for {cargo}.pdf",
+                data=st.session_state["english_output_optimized_pdf"],
+                file_name=st.session_state["english_output_optimized_pdf_name"],
                 mime="application/pdf",
                 key="dl_english_from_ats",
             )
 
-    # ───────────── Pós Inglês: oferecer otimização ATS ───────────── #
+    # ────────────────────── Pós Inglês: oferecer otimização ATS ────────────────────── #
     if mode == "Gerar versão do currículo em inglês" and "english_output" in st.session_state:
         st.divider()
         st.subheader("🎯 Próximo passo")
