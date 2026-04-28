@@ -61,11 +61,13 @@ Pipeline:
   ├── Processamento com LLM (LlamaIndex)
   │     ├── Análise linguística
   │     ├── Extração de keywords
-  │     └── Reescrita otimizada (ATS)
+  │     ├── Reescrita otimizada (ATS)
+  │     └── Tradução profissional
   └── Geração de output estruturado
 
 Output:
   ├── Análise detalhada
+  ├── Versão em inglês
   └── Currículo otimizado
 
 ```
@@ -78,7 +80,7 @@ Output:
 |---|---|
 | Interface | Streamlit |
 | Orquestração de LLMs | LlamaIndex |
-| LLMs | Google Gemini 2.5 flash / Groq Llama Llama 4 Maverick / OpenAI GPT-4o Mini |
+| LLMs | Google Gemini 2.5 flash / Groq Llama Llama 4 Maverick / OpenAI GPT-4o Mini|
 | Extração de PDF | PyMuPDF (fitz) |
 
 ---
@@ -133,8 +135,8 @@ ou use o sistema de **secrets do Streamlit Cloud**
   streamlit run Corretor_CV.py
   ```
 ---
+
 ## 💡 Melhorias futuras:
-* Gerar currículo em inglês
 * Currículo otimizado em inglês
 * Implementar OCR para analise de imagem
 * Exportar no formato PDF

@@ -162,6 +162,41 @@ Descrição da vaga:
     prompt = template.format(cv=cv_content, job=job_description)
     return llm_complete(llm, prompt)
 
+def CVEnglishVersionGenerator(llm, cv_content: str) -> str:
+    template = """
+    You are a professional resume editor and English language specialist with experience in international recruiting and ATS systems.
+    Your task is to convert the following resume into a **fully professional English version** suitable for international companies.
+    Follow these rules carefully:
+
+    1. Translate the entire resume into **natural, fluent, and professional English**.
+    2. Preserve all factual information. **Do not invent or remove experiences.**
+    3. Improve clarity, coherence, and conciseness where necessary.
+    4. Use vocabulary commonly found in **international technical resumes**.
+    5. Ensure the text is grammatically correct and stylistically professional.
+    6. Adapt section titles to standard English resume sections, such as:
+    - Professional Summary
+    - Education
+    - Technical Skills
+    - Projects
+    - Certifications
+    - Languages
+    7. Rewrite sentences when needed to sound **natural in English**, not like a literal translation.
+    8. Use action verbs commonly used in professional resumes.
+    9. Maintain a clean and structured resume format.
+    10. Use concise bullet points and strong action verbs commonly used in professional resumes such as: Developed, Implemented, Designed, Built, Led, Integrated, Optimized, Automated, Analyzed.
+
+    Important constraints:
+    - Do not include explanations.
+    - Do not include translation notes.
+    - Output **only the final English resume**.
+    - The resume must read as if it were originally written in English.
+
+    Resume:
+    {cv}
+    """
+    prompt = template.format(cv=cv_content)
+    return llm_complete(llm, prompt)
+
 # ============================ UI Streamlit ============================ #
 
 st.set_page_config(page_title="Análise de Currículos", page_icon="📄", layout="wide")
@@ -186,11 +221,13 @@ with col1:
     st.subheader("1) O que você quer fazer?")
     mode = st.selectbox(
         "Selecione:",
-        ["Otimização estratégica para vaga específica","Análise gramatical e de clareza"]
+        ["Otimização estratégica para vaga específica",
+         "Gerar versão do currículo em inglês",
+         "Análise gramatical e de clareza"]
     )
 
-# Variável que será usada para indicar que estamos no modo de análise gramatical para desabilitar campos
-is_grammar = (mode == "Análise gramatical e de clareza")
+# Variável que será usada para indicar que estamos no modo de análise gramatical ou geração de versão em inglês para desabilitar campos da otimização ATS
+is_grammar = (mode == "Análise gramatical e de clareza" or mode == "Gerar versão do currículo em inglês")
 
 with col2:
     st.subheader("2) Descrição da vaga")
@@ -246,10 +283,13 @@ if cv_file:
 
     if st.button("Executar análise", type="primary"):
         with st.spinner("Gerando resposta..."):
-            if is_grammar:
-                output = curriculum_analyser(llm, cv_content)
-            else:
+            if mode == "Otimização estratégica para vaga específica":
                 output = CVStrategicOptimizer(llm, cv_content, job_text)
+            elif mode == "Gerar versão do currículo em inglês":
+                output = CVEnglishVersionGenerator(llm, cv_content)
+            else:
+                # mode == "Análise gramatical e de clareza"
+                output = curriculum_analyser(llm, cv_content)
 
         st.success("Concluído ✅")
         st.markdown(output)
