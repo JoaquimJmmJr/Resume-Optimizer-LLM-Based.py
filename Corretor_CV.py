@@ -22,25 +22,24 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes, max_chars: int = 200_000) -> s
 
 def get_llm(model_choice: str):
     """Cria o LLM (LlamaIndex puro)."""
-    if model_choice == "Gemini (Google)":
+    if model_choice == "Gemini (gemini-2.5-flash)":
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             st.error("GOOGLE_API_KEY não encontrado no .env")
             st.stop()
-        # O Gemini no LlamaIndex usa a variável de ambiente, mas manter check é bom.
         return Gemini(model="models/gemini-2.5-flash")
 
-    if model_choice == "Groq (Llama 4 Maverick)":
+    if model_choice == "Groq (Llama 3.3 70B)":
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             st.error("GROQ_API_KEY não encontrado no .env")
             st.stop()
         return Groq(
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            model="llama-3.3-70b-versatile",
             temperature=0.1,
         )
-    
-    if model_choice == "ChatGPT (OpenAI)":
+
+    if model_choice == "ChatGPT (gpt-4o-mini)":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             st.error("OPENAI_API_KEY não encontrado no .env")
@@ -197,6 +196,36 @@ def CVEnglishVersionGenerator(llm, cv_content: str) -> str:
     prompt = template.format(cv=cv_content)
     return llm_complete(llm, prompt)
 
+def CVStrategicOptimizerEnglish(llm, cv_content: str, job_description: str) -> str:
+    template = """
+You are an expert in recruitment, ATS (Applicant Tracking Systems), and strategic resume writing.
+You will receive:
+1) The candidate's resume (already in English)
+2) A job description
+
+Your task is to produce an ATS-optimized version of the resume tailored to the job.
+
+Rules:
+- Write entirely in English.
+- Keep 100% of the factual information — do not invent or remove experiences.
+- Incorporate relevant keywords from the job description naturally.
+- Use strong action verbs (Developed, Implemented, Led, Designed, Built, Optimized, etc.).
+- Rewrite bullet points to highlight impact and alignment with the role.
+- Condense the professional summary into one strong, targeted sentence.
+- Use standard English resume section titles (Professional Summary, Experience, Education, Skills, etc.).
+- Be concise, clear, and ATS-friendly.
+
+Output ONLY the final optimized resume in English. Do not include analysis, scores, explanations, or any other text.
+
+Resume:
+{cv}
+
+Job Description:
+{job}
+"""
+    prompt = template.format(cv=cv_content, job=job_description)
+    return llm_complete(llm, prompt)
+
 # ============================ UI Streamlit ============================ #
 
 st.set_page_config(page_title="Análise de Currículos", page_icon="📄", layout="wide")
@@ -204,10 +233,13 @@ st.title("Análise e adequação de Currículos 📄")
 
 with st.sidebar:
     st.subheader("Modelo (LlamaIndex)")
-    model_choice = st.selectbox("Escolha o modelo:", ["Gemini (Google)", "Groq (Llama 4 Maverick)", "ChatGPT (OpenAI)"])
+    model_choice = st.selectbox("Escolha o modelo:", [
+        "Gemini (gemini-2.5-flash)",
+        "Groq (Llama 3.3 70B)",
+        "ChatGPT (gpt-4o-mini)"
+    ])
     llm = get_llm(model_choice)
 
-    # Limite por modelo (ajuste como quiser)
     limit = 200_000 if "Gemini" in model_choice else 40_000
 
     st.subheader("Currículo (PDF)")
@@ -226,15 +258,22 @@ with col1:
          "Análise gramatical e de clareza"]
     )
 
-# Variável que será usada para indicar que estamos no modo de análise gramatical ou geração de versão em inglês para desabilitar campos da otimização ATS
-is_grammar = (mode == "Análise gramatical e de clareza" or mode == "Gerar versão do currículo em inglês")
+# Controla se o usuário quer otimizar após gerar a versão em inglês
+if "optimize_after_english" not in st.session_state:
+    st.session_state["optimize_after_english"] = False
+
+# Campos de vaga ficam desabilitados apenas quando:
+# - modo é "Análise gramatical" OU
+# - modo é "Gerar versão em inglês" E o usuário ainda NÃO pediu otimização posterior
+is_grammar = mode == "Análise gramatical e de clareza"
+is_english_mode = mode == "Gerar versão do currículo em inglês"
+job_fields_disabled = is_grammar or (is_english_mode and not st.session_state["optimize_after_english"])
 
 with col2:
     st.subheader("2) Descrição da vaga")
-    # Quando for análise gramatical, não pede "formato da vaga"
     job_input_type = st.selectbox(
-        "Formato da vaga:",["Texto", "PDF", "Imagem (OCR)"],
-        disabled=is_grammar,
+        "Formato da vaga:", ["Texto", "PDF", "Imagem (OCR)"],
+        disabled=job_fields_disabled,
         key="job_input_type")
 
 # inicializando a variável que vai armazenar o texto da vaga
@@ -242,22 +281,32 @@ job_text = ""
 
 if job_input_type == "Texto":
     job_text = st.text_area(
-        "Cole aqui a descrição da vaga:", 
-        height=220, 
+        "Cole aqui a descrição da vaga:",
+        height=220,
         key="job_text",
-        disabled=is_grammar
-        )
+        disabled=job_fields_disabled
+    )
 elif job_input_type == "PDF":
     job_pdf = st.file_uploader(
-        "Envie a vaga (PDF):", 
-        type=["pdf"], 
-        key="jobpdf", 
-        disabled=is_grammar)
+        "Envie a vaga (PDF):",
+        type=["pdf"],
+        key="jobpdf",
+        disabled=job_fields_disabled)
     if job_pdf:
         job_text = extract_text_from_pdf_bytes(job_pdf.read(), max_chars=120_000)
 else:
-    st.info("OCR ainda não implementado neste MVP, envie a descrição da vaga em texto ou PDF.")
+    if not job_fields_disabled:
+        st.info("OCR ainda não implementado neste MVP, envie a descrição da vaga em texto ou PDF.")
     job_text = ""
+
+# Reseta ats_output sempre que uma nova descrição de vaga for detectada,
+# para evitar que a "versão em inglês do currículo otimizado" use uma otimização desatualizada
+if job_text.strip():
+    last_job = st.session_state.get("last_job_text", "")
+    if job_text.strip() != last_job:
+        st.session_state["last_job_text"] = job_text.strip()
+        if "ats_output" in st.session_state:
+            del st.session_state["ats_output"]
 
 st.divider()
 
@@ -288,11 +337,52 @@ if cv_file:
             elif mode == "Gerar versão do currículo em inglês":
                 output = CVEnglishVersionGenerator(llm, cv_content)
             else:
-                # mode == "Análise gramatical e de clareza"
                 output = curriculum_analyser(llm, cv_content)
 
         st.success("Concluído ✅")
         st.markdown(output)
+
+        if mode == "Otimização estratégica para vaga específica":
+            st.session_state["ats_output"] = output
+
+        if mode == "Gerar versão do currículo em inglês":
+            st.session_state["english_output"] = output
+            # Reseta flag de otimização ao rodar uma nova geração em inglês
+            st.session_state["optimize_after_english"] = False
+
+    # ───────────── Pós ATS: oferecer versão em inglês ───────────── #
+    if mode == "Otimização estratégica para vaga específica" and "ats_output" in st.session_state:
+        st.divider()
+        st.subheader("🌐 Próximo passo")
+        st.info("Deseja gerar a versão em inglês com base no currículo **otimizado** acima?")
+
+        if st.button("Gerar versão em inglês do currículo otimizado", type="secondary"):
+            with st.spinner("Traduzindo e adaptando para o inglês..."):
+                english_output = CVEnglishVersionGenerator(llm, st.session_state["ats_output"])
+            st.success("Versão em inglês gerada ✅")
+            st.markdown(english_output)
+
+    # ───────────── Pós Inglês: oferecer otimização ATS ───────────── #
+    if mode == "Gerar versão do currículo em inglês" and "english_output" in st.session_state:
+        st.divider()
+        st.subheader("🎯 Próximo passo")
+
+        if not st.session_state["optimize_after_english"]:
+            st.info("Deseja otimizar o currículo em inglês para uma vaga específica?")
+            if st.button("Otimizar para uma vaga (ATS)", type="secondary"):
+                st.session_state["optimize_after_english"] = True
+                st.rerun()
+        else:
+            st.info("Preencha a descrição da vaga acima e clique em **Otimizar currículo em inglês para a vaga**.")
+
+            if job_text.strip():
+                if st.button("Otimizar currículo em inglês para a vaga", type="primary"):
+                    with st.spinner("Otimizando para ATS..."):
+                        ats_english_output = CVStrategicOptimizerEnglish(llm, st.session_state["english_output"], job_text)
+                    st.success("Currículo em inglês otimizado ✅")
+                    st.markdown(ats_english_output)
+            else:
+                st.warning("Preencha a descrição da vaga acima para continuar.")
 
 else:
     st.info("Envie o currículo em PDF na barra lateral para começar.")

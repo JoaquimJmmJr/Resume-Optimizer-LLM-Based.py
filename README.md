@@ -137,7 +137,6 @@ ou use o sistema de **secrets do Streamlit Cloud**
 ---
 
 ## 💡 Melhorias futuras:
-* Currículo otimizado em inglês
 * Implementar OCR para analise de imagem
 * Exportar no formato PDF
 * Separar a resposta da otimização em abas para melhorar a visualização
