@@ -78,7 +78,7 @@ Output:
 |---|---|
 | Interface | Streamlit |
 | Orquestração de LLMs | LlamaIndex |
-| LLMs | Google Gemini 2.5 flash / Groq Llama Llama 4 Maverick |
+| LLMs | Google Gemini 2.5 flash / Groq Llama Llama 4 Maverick / OpenAI GPT-4o Mini |
 | Extração de PDF | PyMuPDF (fitz) |
 
 ---
@@ -124,6 +124,7 @@ python -m venv .venv
   ```
   GOOGLE_API_KEY=your_key
   GROQ_API_KEY=your_key
+  OPENAI_API_KEY=your_key
   ```
 ou use o sistema de **secrets do Streamlit Cloud**
 
@@ -133,7 +134,6 @@ ou use o sistema de **secrets do Streamlit Cloud**
   ```
 ---
 ## 💡 Melhorias futuras:
-* Adicionar o ChatGPT
 * Gerar currículo em inglês
 * Currículo otimizado em inglês
 * Implementar OCR para analise de imagem

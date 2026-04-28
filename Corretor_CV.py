@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from llama_index.llms.groq import Groq
 from llama_index.llms.gemini import Gemini
-
+from llama_index.llms.openai import OpenAI
 load_dotenv()
 
 
@@ -38,6 +38,16 @@ def get_llm(model_choice: str):
         return Groq(
             model="meta-llama/llama-4-maverick-17b-128e-instruct",
             temperature=0.1,
+        )
+    
+    if model_choice == "ChatGPT (OpenAI)":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            st.error("OPENAI_API_KEY não encontrado no .env")
+            st.stop()
+        return OpenAI(
+            model="gpt-4o-mini",
+            temperature=0.1
         )
 
     st.error("Modelo inválido.")
@@ -159,7 +169,7 @@ st.title("Análise e adequação de Currículos 📄")
 
 with st.sidebar:
     st.subheader("Modelo (LlamaIndex)")
-    model_choice = st.selectbox("Escolha o modelo:", ["Gemini (Google)", "Groq (Llama 4 Maverick)"])
+    model_choice = st.selectbox("Escolha o modelo:", ["Gemini (Google)", "Groq (Llama 4 Maverick)", "ChatGPT (OpenAI)"])
     llm = get_llm(model_choice)
 
     # Limite por modelo (ajuste como quiser)
