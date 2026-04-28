@@ -47,6 +47,30 @@ A aplicação permite transformar um currículo comum em uma versão:
 - Destaque de experiências relevantes
 - Resumo profissional otimizado
 
+### 3. Geração de Versão em Inglês
+- Tradução profissional (não literal)
+- Adequação para mercado internacional
+- Uso de padrões globais de currículo
+- Linguagem natural e fluente
+- Estrutura compatível com recrutadores internacionais
+
+
+### 4. Pipeline Inteligente Multietapas
+Fluxo dinâmico com controle de estado:
+
+- CV original → otimização → versão em inglês  
+- CV original → versão em inglês → otimização  
+- CV otimizado → tradução → reotimização  
+
+Gerenciado via `st.session_state` para evitar redundâncias e inconsistências.
+
+
+### 5. Exportação Profissional em PDF
+- Geração automática do currículo otimizado
+- Layout limpo e estruturado
+- Suporte a fontes customizadas
+- Pronto para envio
+
 ---
 
 ## 🏗️ Arquitetura do sistema
@@ -138,7 +162,6 @@ ou use o sistema de **secrets do Streamlit Cloud**
 
 ## 💡 Melhorias futuras:
 * Implementar OCR para analise de imagem
-* Exportar no formato PDF
 * Separar a resposta da otimização em abas para melhorar a visualização
 * Perguntas da vaga e respostas para aumentar a aderência do candidato
 * Simulação de entrevista para a vaga

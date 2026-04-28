@@ -1,12 +1,101 @@
 import os
+import re
+import io
 import streamlit as st
 import fitz  # PyMuPDF
 from dotenv import load_dotenv
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.enums import TA_LEFT
 
 from llama_index.llms.groq import Groq
 from llama_index.llms.gemini import Gemini
 from llama_index.llms.openai import OpenAI
 load_dotenv()
+
+
+# ============================ PDF Export ============================= #
+
+def _strip_emojis(text: str) -> str:
+    """Remove emojis e símbolos fora do range Latin/BMP que reportlab não suporta."""
+    return re.sub(r'[^\x00-\x7F\u00C0-\u024F\u2000-\u206F\u2100-\u214F]', '', text)
+
+def markdown_to_pdf_bytes(texto: str, titulo: str = "Currículo") -> bytes:
+    """Converte texto markdown em PDF formatado usando reportlab."""
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=2.5 * cm,
+        rightMargin=2.5 * cm,
+        topMargin=2.5 * cm,
+        bottomMargin=2.5 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+
+    style_title   = ParagraphStyle("CVTitle",   parent=styles["Title"],   fontSize=16, spaceAfter=14, textColor=colors.HexColor("#1a1a2e"))
+    style_h1      = ParagraphStyle("CVH1",      parent=styles["Heading1"], fontSize=13, spaceBefore=10, spaceAfter=4,  textColor=colors.HexColor("#16213e"))
+    style_h2      = ParagraphStyle("CVH2",      parent=styles["Heading2"], fontSize=11, spaceBefore=8,  spaceAfter=3,  textColor=colors.HexColor("#0f3460"))
+    style_h3      = ParagraphStyle("CVH3",      parent=styles["Heading3"], fontSize=10, spaceBefore=6,  spaceAfter=2,  textColor=colors.HexColor("#0f3460"))
+    style_body    = ParagraphStyle("CVBody",    parent=styles["Normal"],   fontSize=10, leading=14, spaceAfter=4,  alignment=TA_LEFT)
+    style_bullet  = ParagraphStyle("CVBullet",  parent=styles["Normal"],   fontSize=10, leading=14, leftIndent=16, spaceAfter=2, bulletIndent=6)
+
+    def escape_xml(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def apply_inline(s: str) -> str:
+        """Converte **negrito** e *itálico* para tags reportlab."""
+        s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s)
+        s = re.sub(r'\*(.+?)\*',     r'<i>\1</i>', s)
+        s = re.sub(r'`(.+?)`',       r'<font name="Courier">\1</font>', s)
+        return s
+
+    story = []
+    story.append(Paragraph(_strip_emojis(titulo), style_title))
+    story.append(Spacer(1, 0.3 * cm))
+
+    for raw_line in texto.splitlines():
+        line = _strip_emojis(raw_line)
+
+        # Headings
+        if line.startswith("### "):
+            story.append(Paragraph(escape_xml(line[4:].strip()), style_h3))
+        elif line.startswith("## "):
+            story.append(Paragraph(escape_xml(line[3:].strip()), style_h2))
+        elif line.startswith("# "):
+            story.append(Paragraph(escape_xml(line[2:].strip()), style_h1))
+
+        # Separador horizontal
+        elif re.match(r'^[-*_]{3,}$', line.strip()):
+            story.append(Spacer(1, 0.2 * cm))
+
+        # Bullet points (-, *, •)
+        elif re.match(r'^[\-\*\•]\s+', line):
+            content = re.sub(r'^[\-\*\•]\s+', '', line)
+            story.append(Paragraph(apply_inline(escape_xml(content)), style_bullet, bulletText="•"))
+
+        # Listas numeradas
+        elif re.match(r'^\d+[\.\)]\s+', line):
+            content = re.sub(r'^\d+[\.\)]\s+', '', line)
+            story.append(Paragraph(apply_inline(escape_xml(content)), style_bullet))
+
+        # Linha vazia
+        elif line.strip() == "":
+            story.append(Spacer(1, 0.15 * cm))
+
+        # Texto normal
+        else:
+            story.append(Paragraph(apply_inline(escape_xml(line)), style_body))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.read()
 
 
 # ============================ Helpers ================================ #
@@ -196,6 +285,48 @@ def CVEnglishVersionGenerator(llm, cv_content: str) -> str:
     prompt = template.format(cv=cv_content)
     return llm_complete(llm, prompt)
 
+def extrair_cv_otimizado(output: str) -> str:
+    """Extrai apenas a seção 4️⃣ (versão otimizada) do output do CVStrategicOptimizer."""
+    match = re.search(r'4️⃣[^\n]*\n(.*?)(?=5️⃣|\Z)', output, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return output  # fallback: retorna tudo se não encontrar o padrão
+
+def extrair_cargo_da_vaga(llm, job_text: str) -> str:
+    """Extrai o cargo/título da vaga a partir da descrição."""
+    prompt = (
+        "Extraia apenas o título/cargo da vaga do texto abaixo. "
+        "Responda SOMENTE com o título, sem explicações, pontuação extra ou aspas.\n\n"
+        f"Descrição da vaga:\n{job_text[:3000]}"
+    )
+    cargo = llm_complete(llm, prompt).strip().strip('"').strip("'")
+    # Sanitiza para uso em file_name: remove caracteres inválidos
+    cargo = re.sub(r'[\\/*?:"<>|]', '', cargo)
+    return cargo or "Vaga"
+
+def CVCorrigido(llm, cv_content: str, analise: str) -> str:
+    """Gera o currículo com todas as correções gramaticais já aplicadas."""
+    template = """
+Você é uma revisora especialista em língua portuguesa.
+Abaixo estão o currículo original e a análise gramatical com as correções sugeridas.
+
+Sua tarefa: reescreva o currículo aplicando TODAS as correções indicadas na análise.
+- Corrija ortografia, gramática, concordância, regência e pontuação conforme sugerido.
+- Mantenha 100% das informações originais — não acrescente nem remova conteúdo.
+- Preserve a estrutura e formatação original (seções, ordem, etc.).
+- Incorpore as melhorias de clareza e formalidade sugeridas.
+
+Entregue APENAS o currículo corrigido, sem explicações, comentários ou marcações.
+
+Currículo original:
+{cv}
+
+Análise gramatical:
+{analise}
+"""
+    prompt = template.format(cv=cv_content, analise=analise)
+    return llm_complete(llm, prompt)
+
 def CVStrategicOptimizerEnglish(llm, cv_content: str, job_description: str) -> str:
     template = """
 You are an expert in recruitment, ATS (Applicant Tracking Systems), and strategic resume writing.
@@ -330,7 +461,14 @@ if cv_file:
         with st.expander("Texto extraído da vaga (prévia)"):
             st.write(job_text[:4000] + ("..." if len(job_text) > 4000 else ""))
 
-    if st.button("Executar análise", type="primary"):
+    # Label do botão principal varia por modo
+    btn_labels = {
+        "Otimização estratégica para vaga específica": "Otimizar currículo",
+        "Gerar versão do currículo em inglês":         "Gerar versão em inglês",
+        "Análise gramatical e de clareza":             "Executar análise",
+    }
+
+    if st.button(btn_labels[mode], type="primary"):
         with st.spinner("Gerando resposta..."):
             if mode == "Otimização estratégica para vaga específica":
                 output = CVStrategicOptimizer(llm, cv_content, job_text)
@@ -342,13 +480,45 @@ if cv_file:
         st.success("Concluído ✅")
         st.markdown(output)
 
+        # ───────────── Exportar PDF ───────────── #
         if mode == "Otimização estratégica para vaga específica":
+            cargo = extrair_cargo_da_vaga(llm, job_text)
+            cv_para_pdf = extrair_cv_otimizado(output)
+            pdf_bytes = markdown_to_pdf_bytes(cv_para_pdf, f"Currículo para {cargo}")
+            st.download_button(
+                label="📥 Baixar currículo otimizado em PDF",
+                data=pdf_bytes,
+                file_name=f"Currículo para {cargo}.pdf",
+                mime="application/pdf",
+                key="dl_ats_main",
+            )
             st.session_state["ats_output"] = output
+            st.session_state["cargo_da_vaga"] = cargo
 
-        if mode == "Gerar versão do currículo em inglês":
+        elif mode == "Gerar versão do currículo em inglês":
+            pdf_bytes = markdown_to_pdf_bytes(output, "Resume")
+            st.download_button(
+                label="📥 Baixar currículo em inglês em PDF",
+                data=pdf_bytes,
+                file_name="Resume.pdf",
+                mime="application/pdf",
+                key="dl_english_main",
+            )
             st.session_state["english_output"] = output
-            # Reseta flag de otimização ao rodar uma nova geração em inglês
             st.session_state["optimize_after_english"] = False
+
+        else:
+            # Análise gramatical: gera o currículo corrigido para exportar
+            with st.spinner("Gerando currículo corrigido para exportação..."):
+                cv_corrigido = CVCorrigido(llm, cv_content, output)
+            pdf_bytes = markdown_to_pdf_bytes(cv_corrigido, "Currículo Corrigido")
+            st.download_button(
+                label="📥 Baixar currículo corrigido em PDF",
+                data=pdf_bytes,
+                file_name="Currículo Corrigido.pdf",
+                mime="application/pdf",
+                key="dl_grammar_main",
+            )
 
     # ───────────── Pós ATS: oferecer versão em inglês ───────────── #
     if mode == "Otimização estratégica para vaga específica" and "ats_output" in st.session_state:
@@ -358,9 +528,19 @@ if cv_file:
 
         if st.button("Gerar versão em inglês do currículo otimizado", type="secondary"):
             with st.spinner("Traduzindo e adaptando para o inglês..."):
-                english_output = CVEnglishVersionGenerator(llm, st.session_state["ats_output"])
+                english_output_optimized = CVEnglishVersionGenerator(llm, st.session_state["ats_output"])
+            st.session_state["english_output_optimized"] = english_output_optimized
             st.success("Versão em inglês gerada ✅")
-            st.markdown(english_output)
+            st.markdown(english_output_optimized)
+            cargo = st.session_state.get("cargo_da_vaga", "Vaga")
+            pdf_bytes = markdown_to_pdf_bytes(english_output_optimized, f"Resume for {cargo}")
+            st.download_button(
+                label="📥 Baixar versão em inglês em PDF",
+                data=pdf_bytes,
+                file_name=f"Resume for {cargo}.pdf",
+                mime="application/pdf",
+                key="dl_english_from_ats",
+            )
 
     # ───────────── Pós Inglês: oferecer otimização ATS ───────────── #
     if mode == "Gerar versão do currículo em inglês" and "english_output" in st.session_state:
@@ -378,9 +558,19 @@ if cv_file:
             if job_text.strip():
                 if st.button("Otimizar currículo em inglês para a vaga", type="primary"):
                     with st.spinner("Otimizando para ATS..."):
+                        # Usa english_output (versão direta em inglês), nunca english_output_optimized
                         ats_english_output = CVStrategicOptimizerEnglish(llm, st.session_state["english_output"], job_text)
+                    cargo = extrair_cargo_da_vaga(llm, job_text)
                     st.success("Currículo em inglês otimizado ✅")
                     st.markdown(ats_english_output)
+                    pdf_bytes = markdown_to_pdf_bytes(ats_english_output, f"Resume for {cargo}")
+                    st.download_button(
+                        label="📥 Baixar currículo otimizado em PDF",
+                        data=pdf_bytes,
+                        file_name=f"Resume for {cargo}.pdf",
+                        mime="application/pdf",
+                        key="dl_ats_english",
+                    )
             else:
                 st.warning("Preencha a descrição da vaga acima para continuar.")
 
