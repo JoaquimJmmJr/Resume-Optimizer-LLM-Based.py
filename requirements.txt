@@ -6,3 +6,5 @@ llama-index-llms-groq
 llama-index-llms-gemini
 llama-index-llms-openai
 reportlab
+pytesseract
+Pillow

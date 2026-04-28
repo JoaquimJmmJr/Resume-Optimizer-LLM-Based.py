@@ -3,6 +3,8 @@ import re
 import io
 import streamlit as st
 import fitz  # PyMuPDF
+from PIL import Image, ImageEnhance, ImageFilter
+import pytesseract
 from dotenv import load_dotenv
 
 from reportlab.lib.pagesizes import A4
@@ -39,18 +41,17 @@ def markdown_to_pdf_bytes(texto: str, titulo: str = "Currículo") -> bytes:
 
     styles = getSampleStyleSheet()
 
-    style_title   = ParagraphStyle("CVTitle",   parent=styles["Title"],   fontSize=16, spaceAfter=14, textColor=colors.HexColor("#1a1a2e"))
-    style_h1      = ParagraphStyle("CVH1",      parent=styles["Heading1"], fontSize=13, spaceBefore=10, spaceAfter=4,  textColor=colors.HexColor("#16213e"))
-    style_h2      = ParagraphStyle("CVH2",      parent=styles["Heading2"], fontSize=11, spaceBefore=8,  spaceAfter=3,  textColor=colors.HexColor("#0f3460"))
-    style_h3      = ParagraphStyle("CVH3",      parent=styles["Heading3"], fontSize=10, spaceBefore=6,  spaceAfter=2,  textColor=colors.HexColor("#0f3460"))
-    style_body    = ParagraphStyle("CVBody",    parent=styles["Normal"],   fontSize=10, leading=14, spaceAfter=4,  alignment=TA_LEFT)
-    style_bullet  = ParagraphStyle("CVBullet",  parent=styles["Normal"],   fontSize=10, leading=14, leftIndent=16, spaceAfter=2, bulletIndent=6)
+    style_title  = ParagraphStyle("CVTitle",  parent=styles["Title"],   fontSize=16, spaceAfter=14, textColor=colors.HexColor("#1a1a2e"))
+    style_h1     = ParagraphStyle("CVH1",     parent=styles["Heading1"], fontSize=13, spaceBefore=10, spaceAfter=4,  textColor=colors.HexColor("#16213e"))
+    style_h2     = ParagraphStyle("CVH2",     parent=styles["Heading2"], fontSize=11, spaceBefore=8,  spaceAfter=3,  textColor=colors.HexColor("#0f3460"))
+    style_h3     = ParagraphStyle("CVH3",     parent=styles["Heading3"], fontSize=10, spaceBefore=6,  spaceAfter=2,  textColor=colors.HexColor("#0f3460"))
+    style_body   = ParagraphStyle("CVBody",   parent=styles["Normal"],   fontSize=10, leading=14, spaceAfter=4,  alignment=TA_LEFT)
+    style_bullet = ParagraphStyle("CVBullet", parent=styles["Normal"],   fontSize=10, leading=14, leftIndent=16, spaceAfter=2, bulletIndent=6)
 
     def escape_xml(s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     def apply_inline(s: str) -> str:
-        """Converte **negrito** e *itálico* para tags reportlab."""
         s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s)
         s = re.sub(r'\*(.+?)\*',     r'<i>\1</i>', s)
         s = re.sub(r'`(.+?)`',       r'<font name="Courier">\1</font>', s)
@@ -63,33 +64,22 @@ def markdown_to_pdf_bytes(texto: str, titulo: str = "Currículo") -> bytes:
     for raw_line in texto.splitlines():
         line = _strip_emojis(raw_line)
 
-        # Headings
         if line.startswith("### "):
             story.append(Paragraph(escape_xml(line[4:].strip()), style_h3))
         elif line.startswith("## "):
             story.append(Paragraph(escape_xml(line[3:].strip()), style_h2))
         elif line.startswith("# "):
             story.append(Paragraph(escape_xml(line[2:].strip()), style_h1))
-
-        # Separador horizontal
         elif re.match(r'^[-*_]{3,}$', line.strip()):
             story.append(Spacer(1, 0.2 * cm))
-
-        # Bullet points (-, *, •)
         elif re.match(r'^[\-\*\•]\s+', line):
             content = re.sub(r'^[\-\*\•]\s+', '', line)
             story.append(Paragraph(apply_inline(escape_xml(content)), style_bullet, bulletText="•"))
-
-        # Listas numeradas
         elif re.match(r'^\d+[\.\)]\s+', line):
             content = re.sub(r'^\d+[\.\)]\s+', '', line)
             story.append(Paragraph(apply_inline(escape_xml(content)), style_bullet))
-
-        # Linha vazia
         elif line.strip() == "":
             story.append(Spacer(1, 0.15 * cm))
-
-        # Texto normal
         else:
             story.append(Paragraph(apply_inline(escape_xml(line)), style_body))
 
@@ -101,13 +91,76 @@ def markdown_to_pdf_bytes(texto: str, titulo: str = "Currículo") -> bytes:
 # ============================ Helpers ================================ #
 
 def extract_text_from_pdf_bytes(pdf_bytes: bytes, max_chars: int = 200_000) -> str:
-    """Extrai texto de PDF com PyMuPDF (bom para PDFs com texto selecionável)."""
+    """Extrai texto de PDF com PyMuPDF (PDFs com texto selecionável).
+    sort=True garante ordem de leitura correta; limpeza remove artefatos de encoding.
+    """
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     parts = []
     for page in doc:
-        parts.append(page.get_text("text"))
-    text = "\n".join(parts).strip()
-    return text[:max_chars] if text else ""
+        text = page.get_text("text", sort=True)
+        # Substitui ligaduras Unicode comuns que confundem o LLM
+        text = text.replace("\ufb01", "fi").replace("\ufb02", "fl")
+        # Remove caracteres de controle que poluem o texto
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+        parts.append(text)
+    full_text = "\n".join(parts).strip()
+    return full_text[:max_chars] if full_text else ""
+
+def _preprocess_image_for_ocr(img: Image.Image) -> Image.Image:
+    """Pré-processa imagem para maximizar acurácia do OCR:
+    1. Converte para escala de cinza
+    2. Escala para pelo menos 2400px de largura (~300 DPI efetivo)
+    3. Aumenta contraste e nitidez
+    """
+    # 1. Escala de cinza
+    img = img.convert("L")
+
+    # 2. Upscale: garante largura mínima de 2400px
+    min_width = 2400
+    if img.width < min_width:
+        scale = min_width / img.width
+        new_size = (int(img.width * scale), int(img.height * scale))
+        img = img.resize(new_size, Image.LANCZOS)
+
+    # 3. Contraste
+    img = ImageEnhance.Contrast(img).enhance(2.0)
+
+    # 4. Nitidez
+    img = ImageEnhance.Sharpness(img).enhance(2.0)
+
+    # 5. Realce de bordas (melhora letras finas)
+    img = img.filter(ImageFilter.SHARPEN)
+
+    return img
+
+def extract_text_from_image_ocr(file_bytes: bytes, filename: str, max_chars: int = 120_000) -> str:
+    """Extrai texto de imagem ou PDF escaneado via OCR (pytesseract).
+
+    - Imagens (PNG, JPG, WEBP, BMP, TIFF): pré-processa e aplica OCR.
+    - PDF: renderiza cada página em alta resolução via PyMuPDF, pré-processa e aplica OCR.
+    """
+    ext = filename.rsplit(".", 1)[-1].lower()
+    tess_config = "--oem 3 --psm 6"  # oem 3 = LSTM; psm 6 = bloco de texto uniforme
+    lang = "por+eng"
+    parts = []
+
+    if ext == "pdf":
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        for page in doc:
+            mat = fitz.Matrix(2.5, 2.5)  # ~200 DPI base → 500 DPI efetivo
+            pix = page.get_pixmap(matrix=mat)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            img = _preprocess_image_for_ocr(img)
+            text = pytesseract.image_to_string(img, lang=lang, config=tess_config)
+            parts.append(text)
+    else:
+        img = Image.open(io.BytesIO(file_bytes))
+        img = _preprocess_image_for_ocr(img)
+        text = pytesseract.image_to_string(img, lang=lang, config=tess_config)
+        parts.append(text)
+
+    full_text = "\n".join(parts).strip()
+    return full_text[:max_chars] if full_text else ""
 
 def get_llm(model_choice: str):
     """Cria o LLM (LlamaIndex puro)."""
@@ -123,20 +176,14 @@ def get_llm(model_choice: str):
         if not api_key:
             st.error("GROQ_API_KEY não encontrado no .env")
             st.stop()
-        return Groq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,
-        )
+        return Groq(model="llama-3.3-70b-versatile", temperature=0.1)
 
     if model_choice == "ChatGPT (gpt-4o-mini)":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             st.error("OPENAI_API_KEY não encontrado no .env")
             st.stop()
-        return OpenAI(
-            model="gpt-4o-mini",
-            temperature=0.1
-        )
+        return OpenAI(model="gpt-4o-mini", temperature=0.1)
 
     st.error("Modelo inválido.")
     st.stop()
@@ -144,12 +191,11 @@ def get_llm(model_choice: str):
 def llm_complete(llm, prompt: str) -> str:
     """Wrapper robusto para pegar o texto retornado pelo LlamaIndex."""
     resp = llm.complete(prompt)
-    # Normalmente é resp.text
     text = getattr(resp, "text", None)
     if text:
         return text.strip()
-    # fallback
     return str(resp).strip()
+
 
 # ============================ Prompts ================================ #
 
@@ -227,7 +273,7 @@ Analise o tom da vaga e adapte o currículo para:
 - Linguagem alinhada ao perfil da empresa
 - Destaque de experiências e habilidades mais relevantes para o setor e tipo de empresa
 - Condense as o objetivo/resumo do candidato em uma frase estratégica, forte e profissional, mantendo suas principais qualidades que podem contribuir para a vaga e a empresa
-- Seja o mais conciso possível, sem perder impacto.  
+- Seja o mais conciso possível, sem perder impacto.
 
 ETAPA 5 — Entrega Estruturada
 Responda exatamente neste formato:
@@ -290,7 +336,7 @@ def extrair_cv_otimizado(output: str) -> str:
     match = re.search(r'4️⃣[^\n]*\n(.*?)(?=5️⃣|\Z)', output, re.DOTALL)
     if match:
         return match.group(1).strip()
-    return output  # fallback: retorna tudo se não encontrar o padrão
+    return output
 
 def extrair_cargo_da_vaga(llm, job_text: str) -> str:
     """Extrai o cargo/título da vaga a partir da descrição."""
@@ -300,7 +346,6 @@ def extrair_cargo_da_vaga(llm, job_text: str) -> str:
         f"Descrição da vaga:\n{job_text[:3000]}"
     )
     cargo = llm_complete(llm, prompt).strip().strip('"').strip("'")
-    # Sanitiza para uso em file_name: remove caracteres inválidos
     cargo = re.sub(r'[\\/*?:"<>|]', '', cargo)
     return cargo or "Vaga"
 
@@ -367,7 +412,6 @@ def exibir_output_ats_em_abas(output: str, pdf_bytes: bytes = None, pdf_name: st
         "5️⃣": "🏆 Score ATS",
     }
 
-    # Extrai o conteúdo de cada seção via regex
     secoes = {}
     chaves = list(marcadores.keys())
     for i, emoji in enumerate(chaves):
@@ -388,7 +432,6 @@ def exibir_output_ats_em_abas(output: str, pdf_bytes: bytes = None, pdf_name: st
                 st.markdown(conteudo)
             else:
                 st.info("Conteúdo não encontrado para esta etapa.")
-            # Botão de download apenas na aba "📄 CV Otimizado"
             if emoji == "4️⃣" and pdf_bytes and pdf_name:
                 st.divider()
                 st.download_button(
@@ -413,7 +456,6 @@ with st.sidebar:
         "ChatGPT (gpt-4o-mini)"
     ])
     llm = get_llm(model_choice)
-
     limit = 200_000 if "Gemini" in model_choice else 40_000
 
     st.subheader("Currículo (PDF)")
@@ -436,10 +478,10 @@ with col1:
 if "optimize_after_english" not in st.session_state:
     st.session_state["optimize_after_english"] = False
 
-# Campos de vaga ficam desabilitados apenas quando:
+# Campos de vaga ficam desabilitados quando:
 # - modo é "Análise gramatical" OU
 # - modo é "Gerar versão em inglês" E o usuário ainda NÃO pediu otimização posterior
-is_grammar = mode == "Análise gramatical e de clareza"
+is_grammar      = mode == "Análise gramatical e de clareza"
 is_english_mode = mode == "Gerar versão do currículo em inglês"
 job_fields_disabled = is_grammar or (is_english_mode and not st.session_state["optimize_after_english"])
 
@@ -448,7 +490,8 @@ with col2:
     job_input_type = st.selectbox(
         "Formato da vaga:", ["Texto", "PDF", "Imagem (OCR)"],
         disabled=job_fields_disabled,
-        key="job_input_type")
+        key="job_input_type",
+    )
 
 # inicializando a variável que vai armazenar o texto da vaga
 job_text = ""
@@ -458,23 +501,39 @@ if job_input_type == "Texto":
         "Cole aqui a descrição da vaga:",
         height=220,
         key="job_text",
-        disabled=job_fields_disabled
+        disabled=job_fields_disabled,
     )
 elif job_input_type == "PDF":
     job_pdf = st.file_uploader(
         "Envie a vaga (PDF):",
         type=["pdf"],
         key="jobpdf",
-        disabled=job_fields_disabled)
+        disabled=job_fields_disabled,
+    )
     if job_pdf:
         job_text = extract_text_from_pdf_bytes(job_pdf.read(), max_chars=120_000)
 else:
     if not job_fields_disabled:
-        st.info("OCR ainda não implementado neste MVP, envie a descrição da vaga em texto ou PDF.")
-    job_text = ""
+        job_ocr_file = st.file_uploader(
+            "Envie a imagem ou PDF escaneado da vaga:",
+            type=["png", "jpg", "jpeg", "webp", "bmp", "tiff", "pdf"],
+            key="job_ocr",
+            disabled=job_fields_disabled,
+        )
+        if job_ocr_file:
+            with st.spinner("Extraindo texto via OCR..."):
+                job_text = extract_text_from_image_ocr(
+                    job_ocr_file.read(),
+                    job_ocr_file.name,
+                    max_chars=120_000,
+                )
+            if job_text:
+                with st.expander("Texto extraído por OCR (prévia)"):
+                    st.write(job_text[:2000] + ("..." if len(job_text) > 2000 else ""))
+            else:
+                st.warning("Não foi possível extrair texto. Verifique se a imagem está legível.")
 
-# Reseta ats_output sempre que uma nova descrição de vaga for detectada,
-# para evitar que a "versão em inglês do currículo otimizado" use uma otimização desatualizada
+# Reseta ats_output e derivados sempre que uma nova descrição de vaga for detectada
 if job_text.strip():
     last_job = st.session_state.get("last_job_text", "")
     if job_text.strip() != last_job:
@@ -502,11 +561,9 @@ if cv_file:
         if not job_text.strip():
             st.warning("Para otimização ATS, você precisa fornecer a descrição da vaga (texto ou PDF).")
             st.stop()
-
         with st.expander("Texto extraído da vaga (prévia)"):
             st.write(job_text[:4000] + ("..." if len(job_text) > 4000 else ""))
 
-    # Label do botão principal varia por modo
     btn_labels = {
         "Otimização estratégica para vaga específica": "Otimizar currículo",
         "Gerar versão do currículo em inglês":         "Gerar versão em inglês",
@@ -517,29 +574,29 @@ if cv_file:
         with st.spinner("Gerando resposta..."):
             if mode == "Otimização estratégica para vaga específica":
                 output = CVStrategicOptimizer(llm, cv_content, job_text)
-                cargo = extrair_cargo_da_vaga(llm, job_text)
+                cargo  = extrair_cargo_da_vaga(llm, job_text)
                 cv_para_pdf = extrair_cv_otimizado(output)
-                pdf_bytes = markdown_to_pdf_bytes(cv_para_pdf, f"Currículo para {cargo}")
-                st.session_state["ats_output"]   = output
+                pdf_bytes   = markdown_to_pdf_bytes(cv_para_pdf, f"Currículo para {cargo}")
+                st.session_state["ats_output"]    = output
                 st.session_state["cargo_da_vaga"] = cargo
                 st.session_state["ats_pdf_bytes"] = pdf_bytes
                 st.session_state["ats_pdf_name"]  = f"Currículo para {cargo}.pdf"
 
             elif mode == "Gerar versão do currículo em inglês":
-                output = CVEnglishVersionGenerator(llm, cv_content)
+                output    = CVEnglishVersionGenerator(llm, cv_content)
                 pdf_bytes = markdown_to_pdf_bytes(output, "Resume")
-                st.session_state["english_output"]     = output
-                st.session_state["english_pdf_bytes"]  = pdf_bytes
+                st.session_state["english_output"]    = output
+                st.session_state["english_pdf_bytes"] = pdf_bytes
                 st.session_state["optimize_after_english"] = False
 
             else:
-                output = curriculum_analyser(llm, cv_content)
+                output       = curriculum_analyser(llm, cv_content)
                 cv_corrigido = CVCorrigido(llm, cv_content, output)
-                pdf_bytes = markdown_to_pdf_bytes(cv_corrigido, "Currículo Corrigido")
+                pdf_bytes    = markdown_to_pdf_bytes(cv_corrigido, "Currículo Corrigido")
                 st.session_state["grammar_output"]    = output
                 st.session_state["grammar_pdf_bytes"] = pdf_bytes
 
-    # ───────────────────── Renderização fora do botão (persiste após download) ───────────────────── #
+    # ─────────────────────  Renderização fora do botão (persiste após download) ───────────────────── #
     if mode == "Otimização estratégica para vaga específica" and "ats_output" in st.session_state:
         st.success("Concluído ✅")
         exibir_output_ats_em_abas(
@@ -572,7 +629,7 @@ if cv_file:
                 key="dl_grammar_main",
             )
 
-    # ───────────────────── Pós ATS: oferecer versão em inglês ───────────────────── #
+    # ─────────────────────  Pós ATS: oferecer versão em inglês ───────────────────── #
     if mode == "Otimização estratégica para vaga específica" and "ats_output" in st.session_state:
         st.divider()
         st.subheader("🌐 Próximo passo")
@@ -581,7 +638,7 @@ if cv_file:
         if st.button("Gerar versão em inglês do currículo otimizado", type="secondary"):
             with st.spinner("Traduzindo e adaptando para o inglês..."):
                 eng_opt = CVEnglishVersionGenerator(llm, st.session_state["ats_output"])
-            cargo = st.session_state.get("cargo_da_vaga", "Vaga")
+            cargo     = st.session_state.get("cargo_da_vaga", "Vaga")
             pdf_bytes = markdown_to_pdf_bytes(eng_opt, f"Resume for {cargo}")
             st.session_state["english_output_optimized"]          = eng_opt
             st.session_state["english_output_optimized_pdf"]      = pdf_bytes
@@ -598,7 +655,7 @@ if cv_file:
                 key="dl_english_from_ats",
             )
 
-    # ────────────────────── Pós Inglês: oferecer otimização ATS ────────────────────── #
+    # ───────────────────── Pós Inglês: oferecer otimização ATS ───────────────────── #
     if mode == "Gerar versão do currículo em inglês" and "english_output" in st.session_state:
         st.divider()
         st.subheader("🎯 Próximo passo")
@@ -614,16 +671,22 @@ if cv_file:
             if job_text.strip():
                 if st.button("Otimizar currículo em inglês para a vaga", type="primary"):
                     with st.spinner("Otimizando para ATS..."):
-                        # Usa english_output (versão direta em inglês), nunca english_output_optimized
-                        ats_english_output = CVStrategicOptimizerEnglish(llm, st.session_state["english_output"], job_text)
-                    cargo = extrair_cargo_da_vaga(llm, job_text)
-                    st.success("Currículo em inglês otimizado ✅")
-                    st.markdown(ats_english_output)
+                        ats_english_output = CVStrategicOptimizerEnglish(
+                            llm, st.session_state["english_output"], job_text
+                        )
+                    cargo     = extrair_cargo_da_vaga(llm, job_text)
                     pdf_bytes = markdown_to_pdf_bytes(ats_english_output, f"Resume for {cargo}")
+                    st.session_state["ats_english_output"]   = ats_english_output
+                    st.session_state["ats_english_pdf"]      = pdf_bytes
+                    st.session_state["ats_english_pdf_name"] = f"Resume for {cargo}.pdf"
+
+                if "ats_english_output" in st.session_state:
+                    st.success("Currículo em inglês otimizado ✅")
+                    st.markdown(st.session_state["ats_english_output"])
                     st.download_button(
                         label="📥 Baixar currículo otimizado em PDF",
-                        data=pdf_bytes,
-                        file_name=f"Resume for {cargo}.pdf",
+                        data=st.session_state["ats_english_pdf"],
+                        file_name=st.session_state["ats_english_pdf_name"],
                         mime="application/pdf",
                         key="dl_ats_english",
                     )

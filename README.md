@@ -54,8 +54,17 @@ A aplicação permite transformar um currículo comum em uma versão:
 - Linguagem natural e fluente
 - Estrutura compatível com recrutadores internacionais
 
+### 4. OCR para descrição de vagas
+- Extração de texto a partir de imagens (PNG, JPG, JPEG, WEBP, BMP, TIFF) e PDFs escaneados
+- Pré-processamento automático da imagem antes do OCR:
+  - Conversão para escala de cinza
+  - Upscale para resolução mínima de 2400px
+  - Aumento de contraste e nitidez
+- Suporte multilíngue: português + inglês (por+eng)
+- Motor LSTM (--oem 3) para maior precisão
+- Prévia do texto extraído antes da execução
 
-### 4. Pipeline Inteligente Multietapas
+### 5. Pipeline Inteligente Multietapas
 Fluxo dinâmico com controle de estado:
 
 - CV original → otimização → versão em inglês  
@@ -64,14 +73,19 @@ Fluxo dinâmico com controle de estado:
 
 Gerenciado via `st.session_state` para evitar redundâncias e inconsistências.
 
-
-### 5. Exportação Profissional em PDF
-- Geração automática do currículo otimizado
-- Layout limpo e estruturado
-- Suporte a fontes customizadas
+### 6. Exportação Profissional em PDF
+- Geração automática do currículo otimizado em memória com reportlab (sem arquivos temporários)
+- Layout estruturado com suporte a headings, negrito, itálico e bullet points
+- Nome do arquivo dinâmico baseado no cargo extraído da vaga:
+```
+    Currículo para {cargo}.pdf
+    Resume for {cargo}.pdf
+    Currículo Corrigido.pdf
+```
+- Botão de download persistente (não desaparece ao clicar)
 - Pronto para envio
 
-### 6. Interface Inteligente (Streamlit)
+### 7. Interface Inteligente (Streamlit)
 - UI adaptativa por contexto
 - Abas (tabs) para navegação das etapas:
     - 🔑 Palavras-chave | 📊 Compatibilidade | 💡 Sugestões | 📄 Currículo otimizado | 🏆 Score ATS
@@ -85,20 +99,24 @@ Gerenciado via `st.session_state` para evitar redundâncias e inconsistências.
 ```
 Input:
   ├── Currículo (PDF)
-  └── Vaga (Texto / PDF)
+  └── Vaga (Texto / PDF / Imagem via OCR)
 
 Pipeline:
-  ├── Extração de texto (PyMuPDF)
+  ├── Extração de texto
+  │     ├── PyMuPDF (PDFs nativos)
+  │     └── pytesseract + Pillow (imagens e PDFs escaneados)
   ├── Processamento com LLM (LlamaIndex)
   │     ├── Análise linguística
   │     ├── Extração de keywords
   │     ├── Reescrita otimizada (ATS)
   │     └── Tradução profissional
   └── Geração de output estruturado
+        ├── Visualização em abas
+        └── Exportação em PDF (reportlab)
 
 Output:
   ├── Análise detalhada
-  ├── Versão em inglês
+  ├── Versão em inglês 
   └── Currículo otimizado
 
 ```
@@ -113,6 +131,9 @@ Output:
 | Orquestração de LLMs | LlamaIndex |
 | LLMs | Google Gemini 2.5 flash / Groq Llama Llama 4 Maverick / OpenAI GPT-4o Mini|
 | Extração de PDF | PyMuPDF (fitz) |
+|OCR |	pytesseract + Pillow |
+|Geração de PDF |	reportlab |
+|Configuração |	python-dotenv |
 
 ---
 
@@ -120,55 +141,89 @@ Output:
 
 ### 1. Clone o repositório
 
-```
-git clone <repo> 
+```bash
+git clone <repo>
 cd <repo>
 ```
 
-### 2. Crie o ambiente virtual
+### 2. Crie e ative o ambiente virtual
 
-```
+```bash
 python -m venv .venv
 ```
 
-### 3. Ative o ambiente
+Windows:
+```bash
+.venv\Scripts\activate
+```
 
-  Windows:
+Mac/Linux:
+```bash
+source .venv/bin/activate
+```
 
-  ```
-  .venv\Scripts\activate
-  ```
+### 3. Instale as dependências do sistema (Tesseract OCR)
 
-  Mac/Linux:
+Linux (Ubuntu/Debian):
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-por
+```
 
-  ```
-  source .venv/bin/activate
-  ```
+macOS:
+```bash
+brew install tesseract tesseract-lang
+```
 
-### 4. Instale as dependências
+**Windows:**  
+Baixe o instalador em: https://github.com/UB-Mannheim/tesseract/wiki  
+Após instalar, adicione ao PATH: `C:\Program Files\Tesseract-OCR`  
+Em "Select components to install" clique em "Additional language data (download)" e selecione "Portuguese".
 
-  ```
-  pip install -r requirements.txt
-  ```
+### 4. Instale as dependências Python
+
+```bash
+pip install -r requirements.txt
+```
 
 ### 5. Configure as variáveis de ambiente
 
-  Crie um `.env`:
-  ```
-  GOOGLE_API_KEY=your_key
-  GROQ_API_KEY=your_key
-  OPENAI_API_KEY=your_key
-  ```
-ou use o sistema de **secrets do Streamlit Cloud**
+Crie um arquivo `.env` na raiz do projeto:
+```env
+GOOGLE_API_KEY=your_key
+GROQ_API_KEY=your_key
+OPENAI_API_KEY=your_key
+```
+
+Ou use o sistema de **secrets do Streamlit Cloud** (`Settings > Secrets`).
 
 ### 6. Execute a aplicação
-  ```
-  streamlit run Corretor_CV.py
-  ```
+
+```bash
+streamlit run Corretor_CV.py
+```
+
 ---
 
-## 💡 Melhorias futuras:
-* Implementar OCR para analise de imagem
-* Perguntas da vaga e respostas para aumentar a aderência do candidato
-* Simulação de entrevista para a vaga
-* Inserir mais modelos de LLM
+## ☁️ Deploy no Streamlit Cloud
+
+O Streamlit Cloud requer um arquivo `packages.txt` na raiz do repositório para instalar dependências de sistema (como o Tesseract). O arquivo já está incluído no projeto:
+
+```
+tesseract-ocr
+tesseract-ocr-por
+tesseract-ocr-eng
+```
+
+Configure as chaves de API em **Settings > Secrets** no painel do Streamlit Cloud.
+
+---
+
+## 💡 Melhorias futuras
+
+- **Respostas para perguntas da vaga**: gerar respostas estratégicas para perguntas dissertativas comuns em formulários de candidatura (ex: "Por que você quer trabalhar conosco?"), alinhadas ao perfil do candidato e à descrição da vaga
+- **Simulação de entrevista**: modo interativo onde o LLM assume o papel de recrutador e faz perguntas técnicas e comportamentais baseadas na vaga e no currículo, com feedback sobre as respostas
+- **Análise de fit cultural**: cruzar o tom e os valores descritos na vaga com o perfil do candidato para sugerir como se posicionar na candidatura
+- **Suporte a mais modelos**: integração com Mistral, Claude (Anthropic) e modelos locais via Ollama
+- **OCR do currículo**: permitir upload de currículos em formato de imagem ou PDF escaneado, não apenas PDFs nativos
+- **Histórico de otimizações**: salvar versões anteriores do currículo e comparar evoluções entre otimizações
+
