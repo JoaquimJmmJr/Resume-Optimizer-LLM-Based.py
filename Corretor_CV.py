@@ -370,7 +370,7 @@ def extrair_cargo_da_vaga(llm, job_text: str) -> str:
     return cargo or "Vaga"
 
 def CVCorrigido(llm, cv_content: str, analise: str) -> str:
-    """Gera o currículo com todas as correções gramaticais já aplicadas."""
+    """Gera o currículo com todas as correções gramaticais já aplicadas, formatado em markdown."""
     template = """
 Você é uma revisora especialista em língua portuguesa.
 Abaixo estão o currículo original e a análise gramatical com as correções sugeridas.
@@ -378,10 +378,16 @@ Abaixo estão o currículo original e a análise gramatical com as correções s
 Sua tarefa: reescreva o currículo aplicando TODAS as correções indicadas na análise.
 - Corrija ortografia, gramática, concordância, regência e pontuação conforme sugerido.
 - Mantenha 100% das informações originais — não acrescente nem remova conteúdo.
-- Preserve a estrutura e formatação original (seções, ordem, etc.).
+- Preserve a estrutura e a ordem das seções do original.
 - Incorpore as melhorias de clareza e formalidade sugeridas.
 
-Entregue APENAS o currículo corrigido, sem explicações, comentários ou marcações.
+Formatação obrigatória (markdown):
+- Use ## para o nome do candidato e ### para os títulos de cada seção (ex: ### Experiência Profissional)
+- Use **negrito** para os títulos de cada seção (ex: **Contatos**,**Formação Acadêmica**, **Principais competências**) e informações de destaque como projetos
+- Use bullet points (- ) para listar responsabilidades, conquistas, habilidades e atividades
+- Use texto corrido apenas para resumo/objetivo profissional
+
+Entregue APENAS o currículo corrigido e formatado, sem explicações, comentários ou marcações extras.
 
 Currículo original:
 {cv}
