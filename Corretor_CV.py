@@ -369,6 +369,17 @@ def extrair_cargo_da_vaga(llm, job_text: str) -> str:
     cargo = re.sub(r'[\\/*?:"<>|]', '', cargo)
     return cargo or "Vaga"
 
+def traduzir_cargo_para_ingles(llm, cargo: str) -> str:
+    """Traduz o cargo/título da vaga para o inglês."""
+    prompt = (
+        "Translate the following job title to English. "
+        "Reply ONLY with the translated title, no explanations, punctuation or quotes.\n\n"
+        f"Job title: {cargo}"
+    )
+    cargo_en = llm_complete(llm, prompt).strip().strip('"').strip("'")
+    cargo_en = re.sub(r'[\\/*?:"<>|]', '', cargo_en)
+    return cargo_en or cargo
+
 def CVCorrigido(llm, cv_content: str, analise: str) -> str:
     """Gera o currículo com todas as correções gramaticais já aplicadas, formatado em markdown."""
     template = """
@@ -383,7 +394,7 @@ Sua tarefa: reescreva o currículo aplicando TODAS as correções indicadas na a
 
 Formatação obrigatória (markdown):
 - Use ## para o nome do candidato e ### para os títulos de cada seção (ex: ### Experiência Profissional)
-- Use **negrito** para os títulos de cada seção (ex: **Contatos**,**Formação Acadêmica**, **Principais competências**) e informações de destaque como projetos
+- Use **negrito** para cargos, empresas, instituições de ensino e informações de destaque
 - Use bullet points (- ) para listar responsabilidades, conquistas, habilidades e atividades
 - Use texto corrido apenas para resumo/objetivo profissional
 
@@ -445,7 +456,7 @@ def exibir_output_ats_em_abas(output: str, T: dict, pdf_bytes: bytes = None, pdf
         padrao = (
             rf'{re.escape(emoji)}[^\n]*\n(.*?)(?={re.escape(proximo)}|\Z)'
             if proximo
-            else rf'{re.escape(emoji)}[^\n]*\n(.*)'
+            else rf'{re.escape(emoji)}(.+?)(?=\Z)'
         )
         match = re.search(padrao, output, re.DOTALL)
         secoes[emoji] = match.group(1).strip() if match else ""
@@ -829,12 +840,13 @@ if cv_file:
 
         if st.button(T["btn_gen_english_opt"], type="secondary"):
             with st.spinner(T["spinner_en_opt"]):
-                eng_opt = CVEnglishVersionGenerator(llm, st.session_state["ats_output"])
-            cargo     = st.session_state.get("cargo_da_vaga", "Vaga")
-            pdf_bytes = markdown_to_pdf_bytes(eng_opt, f"{T['pdf_resume_for']} {cargo}")
+                cv_otimizado = extrair_cv_otimizado(st.session_state["ats_output"])
+                eng_opt  = CVEnglishVersionGenerator(llm, cv_otimizado)
+                cargo_en = traduzir_cargo_para_ingles(llm, st.session_state.get("cargo_da_vaga", "Job"))
+            pdf_bytes = markdown_to_pdf_bytes(eng_opt, f"{T['pdf_resume_for']} {cargo_en}")
             st.session_state["english_output_optimized"]          = eng_opt
             st.session_state["english_output_optimized_pdf"]      = pdf_bytes
-            st.session_state["english_output_optimized_pdf_name"] = f"{T['pdf_resume_for']} {cargo}.pdf"
+            st.session_state["english_output_optimized_pdf_name"] = f"{T['pdf_resume_for']} {cargo_en}.pdf"
 
         if "english_output_optimized" in st.session_state:
             st.success(T["success_english"])
@@ -865,11 +877,11 @@ if cv_file:
                         ats_english_output = CVStrategicOptimizerEnglish(
                             llm, st.session_state["english_output"], job_text
                         )
-                    cargo     = extrair_cargo_da_vaga(llm, job_text)
-                    pdf_bytes = markdown_to_pdf_bytes(ats_english_output, f"{T['pdf_resume_for']} {cargo}")
+                        cargo_en = traduzir_cargo_para_ingles(llm, extrair_cargo_da_vaga(llm, job_text))
+                    pdf_bytes = markdown_to_pdf_bytes(ats_english_output, f"{T['pdf_resume_for']} {cargo_en}")
                     st.session_state["ats_english_output"]    = ats_english_output
                     st.session_state["ats_english_pdf"]       = pdf_bytes
-                    st.session_state["ats_english_pdf_name"]  = f"{T['pdf_resume_for']} {cargo}.pdf"
+                    st.session_state["ats_english_pdf_name"]  = f"{T['pdf_resume_for']} {cargo_en}.pdf"
 
                 if "ats_english_output" in st.session_state:
                     st.success(T["success_ats_en"])
