@@ -12,40 +12,36 @@ A aplicação permite transformar um currículo comum em uma versão:
 - otimizada para sistemas automatizados
 - pronta para mercado internacional
 
+> **Note on language:** The sidebar toggle changes the interface language only. All AI-generated analysis and optimization outputs are produced in Brazilian Portuguese, as this tool is designed for PT-BR resumes. The "Generate English version" feature translates the *resume content itself* — it is independent of the interface language setting.
+
 ---
 
 ## Principais funcionalidades
 
-### 1. Análise linguística do currículo:
+### 1. Análise linguística profissional
+- Avaliação de:
+  - Coesão e coerência
+  - Gramática e ortografia
+  - Formalidade profissional
+- Classificação de erros por gravidade
+- Feedback estruturado com justificativa técnica
+- Exportação do currículo já corrigido em PDF
 
-- Coesão e coerência textual 
-- Gramática normativa (pontuação, concordância, regência, crase) 
-- Ortografia
-- Formalidade profissional
-- Feedback estruturado com correções
+---
 
-### 2. Otimização estratégica para vaga (ATS):
- #### Extração de palavras-chave da vaga
-- Hard skills
-- Soft skills
-- Tecnologias
-- Ferramentas
-- Termos relevantes
-#### Análise de compatibilidade (CV × vaga)
-- Keywords presentes
-- Keywords ausentes
-- Lacunas estratégicas
-- Score estimado de compatibilidade
-#### Reescrita otimizada do currículo
-- Sem inventar informações
-- Uso de palavras-chave relevantes
-- Melhor estrutura e clareza
-- Verbos de ação
-- Foco em ATS
-#### Ajuste ao perfil da empresa
-- Linguagem adequada ao contexto
-- Destaque de experiências relevantes
-- Resumo profissional otimizado
+### 2. Otimização estratégica para vagas
+- Extração automática de palavras-chave da vaga:
+  - Hard skills, soft skills, ferramentas e tecnologias
+- Análise comparativa CV vs vaga:
+  - Palavras presentes vs ausentes e identificação de gaps
+- Reescrita estratégica:
+  - Inclusão de keywords, uso de verbos de ação, estrutura otimizada para ATS
+  - Sem inventar informações
+- Visualização em abas:
+  - 🔑 Palavras-chave | 📊 Compatibilidade | 💡 Sugestões | 📄 Currículo otimizado | 🏆 Score ATS
+- Exportação em PDF com nome dinâmico baseado no cargo da vaga
+
+---
 
 ### 3. Geração de Versão em Inglês
 - Tradução profissional (não literal)
@@ -54,43 +50,59 @@ A aplicação permite transformar um currículo comum em uma versão:
 - Linguagem natural e fluente
 - Estrutura compatível com recrutadores internacionais
 
+---
+
 ### 4. OCR para descrição de vagas
 - Extração de texto a partir de imagens (PNG, JPG, JPEG, WEBP, BMP, TIFF) e PDFs escaneados
 - Pré-processamento automático da imagem antes do OCR:
   - Conversão para escala de cinza
   - Upscale para resolução mínima de 2400px
   - Aumento de contraste e nitidez
-- Suporte multilíngue: português + inglês (por+eng)
-- Motor LSTM (--oem 3) para maior precisão
+- Suporte multilíngue: português + inglês (`por+eng`)
+- Motor LSTM (`--oem 3`) para maior precisão
 - Prévia do texto extraído antes da execução
 
+---
+
 ### 5. Pipeline Inteligente Multietapas
-Fluxo dinâmico com controle de estado:
 
-- CV original → otimização → versão em inglês  
-- CV original → versão em inglês → otimização  
-- CV otimizado → tradução → reotimização  
+Fluxo dinâmico com controle de estado via `st.session_state`. Troca de vaga reseta automaticamente resultados anteriores.
 
-Gerenciado via `st.session_state` para evitar redundâncias e inconsistências.
+| Ponto de entrada | Fluxo | Output |
+|---|---|---|
+| CV em PDF | Otimização ATS | CV otimizado + análise completa + score |
+| CV otimizado | → Versão em inglês | Resume em inglês baseado na versão otimizada |
+| CV em PDF | Versão em inglês | Resume traduzido profissionalmente |
+| Resume em inglês | → Otimização ATS | Resume otimizado diretamente em inglês |
+| CV em PDF | Análise gramatical | Relatório detalhado + CV corrigido para download |
+
+---
 
 ### 6. Exportação Profissional em PDF
-- Geração automática do currículo otimizado em memória com reportlab (sem arquivos temporários)
+- Geração em memória com `reportlab` (sem arquivos temporários)
 - Layout estruturado com suporte a headings, negrito, itálico e bullet points
 - Nome do arquivo dinâmico baseado no cargo extraído da vaga:
-```
-    Currículo para {cargo}.pdf
-    Resume for {cargo}.pdf
-    Currículo Corrigido.pdf
-```
+  - `Currículo para {cargo}.pdf`
+  - `Resume for {cargo}.pdf`
+  - `Currículo Corrigido.pdf`
 - Botão de download persistente (não desaparece ao clicar)
-- Pronto para envio
 
-### 7. Interface Inteligente (Streamlit)
-- UI adaptativa por contexto
-- Abas (tabs) para navegação das etapas:
-    - 🔑 Palavras-chave | 📊 Compatibilidade | 💡 Sugestões | 📄 Currículo otimizado | 🏆 Score ATS
-- Controle dinâmico de fluxo
-- Feedback visual (score, progresso)
+---
+
+### 7. Interface bilíngue (PT/EN)
+- Toggle na sidebar para alternar entre 🇧🇷 Português e 🇺🇸 English
+- Traduz títulos, labels, botões e mensagens da interface
+- Idioma da interface é independente do idioma dos outputs gerados pelo LLM
+
+---
+
+## ⚠️ Limitações conhecidas
+
+- **Qualidade do modelo**: modelos menos capazes (ex: Groq Llama 3.3 70B com contexto estourado) podem gerar currículos com menor coesão, perder seções do currículo original ou não seguir o formato de output esperado. Para melhores resultados, prefira o Gemini 2.5 Flash ou GPT-4o-mini.
+- **Contexto limitado**: modelos com janela de contexto menor podem truncar currículos muito longos. O limite é ajustado automaticamente por modelo (200k tokens para Gemini, 40k para os demais), mas currículos extensos podem ser cortados nos modelos menores.
+- **OCR em imagens de baixa qualidade**: o pré-processamento melhora significativamente a acurácia, mas imagens com baixo contraste, fontes decorativas, rotação ou ruído excessivo ainda podem gerar extrações imperfeitas. PDFs nativos (com texto selecionável) sempre produzem resultados mais precisos.
+- **Extração de seções do output ATS**: a separação em abas (Palavras-chave, Compatibilidade, etc.) depende do modelo seguir o formato de entrega com os marcadores `1️⃣` a `5️⃣`. Modelos menores podem ocasionalmente desviar do formato, fazendo com que alguma aba apareça vazia.
+- **Nome do arquivo PDF**: o cargo extraído da vaga é gerado pelo LLM — em vagas com descrição muito genérica ou mal formatada, o nome pode sair impreciso.
 
 ---
 
@@ -116,9 +128,8 @@ Pipeline:
 
 Output:
   ├── Análise detalhada
-  ├── Versão em inglês 
+  ├── Versão em inglês
   └── Currículo otimizado
-
 ```
 
 ---
@@ -129,11 +140,11 @@ Output:
 |---|---|
 | Interface | Streamlit |
 | Orquestração de LLMs | LlamaIndex |
-| LLMs | Google Gemini 2.5 flash / Groq Llama Llama 4 Maverick / OpenAI GPT-4o Mini|
+| LLMs | Google Gemini 2.5 Flash / Groq Llama 3.3 70B / OpenAI GPT-4o Mini |
 | Extração de PDF | PyMuPDF (fitz) |
-|OCR |	pytesseract + Pillow |
-|Geração de PDF |	reportlab |
-|Configuração |	python-dotenv |
+| OCR | pytesseract + Pillow |
+| Geração de PDF | reportlab |
+| Configuração | python-dotenv |
 
 ---
 
