@@ -15,7 +15,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.enums import TA_LEFT
 
 from llama_index.llms.groq import Groq
-from llama_index.llms.gemini import Gemini
+from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.llms.openai import OpenAI
 load_dotenv()
 
@@ -99,7 +99,6 @@ def markdown_to_pdf_bytes(texto: str, titulo: str = "Currículo") -> bytes:
     buffer.seek(0)
     return buffer.read()
 
-
 # ============================ Helpers ================================ #
 
 def extract_text_from_pdf_bytes(pdf_bytes: bytes, max_chars: int = 200_000) -> str:
@@ -181,7 +180,7 @@ def get_llm(model_choice: str):
         if not api_key:
             st.error("GOOGLE_API_KEY não encontrado no .env")
             st.stop()
-        return Gemini(model="models/gemini-2.5-flash")
+        return GoogleGenAI(model="models/gemini-2.5-flash")
 
     if model_choice == "Groq (Llama 3.3 70B)":
         api_key = os.getenv("GROQ_API_KEY")
