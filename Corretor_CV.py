@@ -173,36 +173,58 @@ def extract_text_from_image_ocr(file_bytes: bytes, filename: str, max_chars: int
     full_text = "\n".join(parts).strip()
     return full_text[:max_chars] if full_text else ""
 
-def get_llm(model_choice: str):
-    """Cria o LLM (LlamaIndex puro)."""
-    if model_choice == "Gemini (gemini-2.5-flash)":
+GEMINI_MODELS = {
+    "Gemini 2.5 Flash (recomendado)": "models/gemini-2.5-flash",
+    "Gemini 2.5 Pro":                 "models/gemini-2.5-pro",
+    "Gemini 2.0 Flash":               "models/gemini-2.0-flash",
+}
+
+GPT_MODELS = {
+    "GPT-4.1":      "gpt-4.1",
+    "GPT-4.1 Mini": "gpt-4.1-mini",
+    "GPT-4.1 Nano": "gpt-4.1-nano",
+    "GPT-4o (recomendado)": "gpt-4o",
+    "GPT-4o Mini":  "gpt-4o-mini",
+}
+
+GEMINI_MODELS_EN = {
+    "Gemini 2.5 Flash (recommended)": "models/gemini-2.5-flash",
+    "Gemini 2.5 Pro":                 "models/gemini-2.5-pro",
+    "Gemini 2.0 Flash":               "models/gemini-2.0-flash",
+}
+
+GPT_MODELS_EN = {
+    "GPT-4.1":      "gpt-4.1",
+    "GPT-4.1 Mini": "gpt-4.1-mini",
+    "GPT-4.1 Nano": "gpt-4.1-nano",
+    "GPT-4o (recommended)": "gpt-4o",
+    "GPT-4o Mini":  "gpt-4o-mini",
+}
+
+def get_llm(provider: str, model_name: str):
+    """Cria o LLM (LlamaIndex) a partir do provider e model_name selecionados."""
+    if provider == "Gemini":
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             st.error("GOOGLE_API_KEY não encontrado no .env")
             st.stop()
-        return GoogleGenAI(model="models/gemini-2.5-flash")
+        return GoogleGenAI(model=model_name)
 
-    if model_choice == "Groq (Llama 3.3 70B)":
+    if provider == "Groq":
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             st.error("GROQ_API_KEY não encontrado no .env")
             st.stop()
-        return Groq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,
-        )
+        return Groq(model="llama-3.3-70b-versatile", temperature=0.1)
 
-    if model_choice == "ChatGPT (gpt-4o-mini)":
+    if provider == "ChatGPT":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             st.error("OPENAI_API_KEY não encontrado no .env")
             st.stop()
-        return OpenAI(
-            model="gpt-4o-mini",
-            temperature=0.1
-        )
+        return OpenAI(model=model_name, temperature=0.1)
 
-    st.error("Modelo inválido.")
+    st.error("Provider inválido.")
     st.stop()
 
 def llm_complete(llm, prompt: str) -> str:
@@ -487,7 +509,9 @@ TEXTS = {
         "app_title":            "Análise e adequação de Currículos 📄",
         "lang_toggle":          "🌐 Idioma / Language",
         "sidebar_model":        "Modelo (LlamaIndex)",
-        "sidebar_model_label":  "Escolha o modelo:",
+        "sidebar_model_label":  "Escolha o provider:",
+        "sidebar_gemini_model": "Versão do Gemini:",
+        "sidebar_gpt_model":    "Versão do GPT:",
         "sidebar_cv":           "Currículo (PDF)",
         "sidebar_cv_upload":    "Envie o currículo (PDF):",
         "col1_title":           "1) O que você quer fazer?",
@@ -552,7 +576,9 @@ TEXTS = {
         "app_title":            "Resume Analysis & Optimization 📄",
         "lang_toggle":          "🌐 Idioma / Language",
         "sidebar_model":        "Model (LlamaIndex)",
-        "sidebar_model_label":  "Choose model:",
+        "sidebar_model_label":  "Choose provider:",
+        "sidebar_gemini_model": "Gemini version:",
+        "sidebar_gpt_model":    "GPT version:",
         "sidebar_cv":           "Resume (PDF)",
         "sidebar_cv_upload":    "Upload your resume (PDF):",
         "col1_title":           "1) What do you want to do?",
@@ -652,13 +678,37 @@ st.title(T["app_title"])
 
 with st.sidebar:
     st.subheader(T["sidebar_model"])
-    model_choice = st.selectbox(T["sidebar_model_label"], [
-        "Gemini (gemini-2.5-flash)",
-        "Groq (Llama 3.3 70B)",
-        "ChatGPT (gpt-4o-mini)"
-    ])
-    llm = get_llm(model_choice)
-    limit = 200_000 if "Gemini" in model_choice else 40_000
+
+    provider = st.selectbox(
+        T["sidebar_model_label"],
+        options=["Gemini", "Groq", "ChatGPT"],
+        format_func=lambda x: {
+            "Gemini":  "Gemini (Google)",
+            "Groq":    "Groq (Llama 3.3 70B)",
+            "ChatGPT": "ChatGPT (OpenAI)",
+        }[x],
+    )
+
+    gemini_labels = GEMINI_MODELS_EN if st.session_state["lang"] == "en" else GEMINI_MODELS
+    gpt_labels = GPT_MODELS_EN if st.session_state["lang"] == "en" else GPT_MODELS
+    model_name = None
+
+    if provider == "Gemini":
+        gemini_choice = st.selectbox(
+            T["sidebar_gemini_model"],
+            options=list(gemini_labels.keys()),
+        )
+        model_name = gemini_labels[gemini_choice]
+
+    elif provider == "ChatGPT":
+        gpt_choice = st.selectbox(
+            T["sidebar_gpt_model"],
+            options=list(gpt_labels.keys()),
+        )
+        model_name = gpt_labels[gpt_choice]
+
+    llm   = get_llm(provider, model_name)
+    limit = 200_000 if provider == "Gemini" else 40_000
 
     st.subheader(T["sidebar_cv"])
     cv_file = st.file_uploader(T["sidebar_cv_upload"], type=["pdf"])

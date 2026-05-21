@@ -96,9 +96,16 @@ Fluxo dinâmico com controle de estado via `st.session_state`. Troca de vaga res
 
 ---
 
+### 8. Seleção de modelos por provider
+- Seletor de provider na sidebar: Gemini, Groq ou ChatGPT
+- Selectbox condicional de modelo exibido apenas para Gemini e ChatGPT
+- Labels dos modelos Gemini traduzidos conforme o idioma da interface
+
+---
+
 ## ⚠️ Limitações conhecidas
 
-- **Qualidade do modelo**: modelos menos capazes (ex: Groq Llama 3.3 70B com contexto estourado) podem gerar currículos com menor coesão, perder seções do currículo original ou não seguir o formato de output esperado. Para melhores resultados, prefira o Gemini 2.5 Flash ou GPT-4o-mini.
+- **Qualidade do modelo**: modelos menos capazes (ex: Groq Llama 3.3 70B com contexto estourado, GPT-4.1 Nano) podem gerar currículos com menor coesão, perder seções do currículo original ou não seguir o formato de output esperado. Para melhores resultados, prefira o Gemini 2.5 Flash ou GPT-4o-mini.
 - **Contexto limitado**: modelos com janela de contexto menor podem truncar currículos muito longos. O limite é ajustado automaticamente por modelo (200k tokens para Gemini, 40k para os demais), mas currículos extensos podem ser cortados nos modelos menores.
 - **OCR em imagens de baixa qualidade**: o pré-processamento melhora significativamente a acurácia, mas imagens com baixo contraste, fontes decorativas, rotação ou ruído excessivo ainda podem gerar extrações imperfeitas. PDFs nativos (com texto selecionável) sempre produzem resultados mais precisos.
 - **Extração de seções do output ATS**: a separação em abas (Palavras-chave, Compatibilidade, etc.) depende do modelo seguir o formato de entrega com os marcadores `1️⃣` a `5️⃣`. Modelos menores podem ocasionalmente desviar do formato, fazendo com que alguma aba apareça vazia.
@@ -140,11 +147,19 @@ Output:
 |---|---|
 | Interface | Streamlit |
 | Orquestração de LLMs | LlamaIndex |
-| LLMs | Google Gemini 2.5 Flash / Groq Llama 3.3 70B / OpenAI GPT-4o Mini |
+| LLMs | Google Gemini / Groq / OpenAI (seleção por provider + modelo) |
 | Extração de PDF | PyMuPDF (fitz) |
 | OCR | pytesseract + Pillow |
 | Geração de PDF | reportlab |
 | Configuração | python-dotenv |
+
+### Modelos disponíveis por provider
+
+| Provider | Modelos |
+|---|---|
+| Gemini (Google) | `gemini-2.5-flash` · `gemini-2.5-pro` · `gemini-2.0-flash` |
+| Groq | `llama-3.3-70b-versatile` |
+| ChatGPT (OpenAI) | `gpt-4.1` · `gpt-4.1-mini` · `gpt-4.1-nano` · `gpt-4o` · `gpt-4o-mini` |
 
 ---
 
@@ -237,4 +252,3 @@ Configure as chaves de API em **Settings > Secrets** no painel do Streamlit Clou
 - **Suporte a mais modelos**: integração com Mistral, Claude (Anthropic) e modelos locais via Ollama
 - **OCR do currículo**: permitir upload de currículos em formato de imagem ou PDF escaneado, não apenas PDFs nativos
 - **Histórico de otimizações**: salvar versões anteriores do currículo e comparar evoluções entre otimizações
-
